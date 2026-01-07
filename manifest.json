@@ -7,7 +7,7 @@
   "action": {
     "title": "Status Tracker",
     "icon": "icon.svg",
-    "popover": "index.html",
+    "popover": "./index.html",
     "width": 300,
     "height": 150
   }

@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Status Tracker</title>
+    <script src="https://unpkg.com/@owlbear-rodeo/sdk@latest/dist/obr.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 10px;
+            font-family: sans-serif;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            display: flex;
+            align-items: center;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        #avatar-container {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            overflow: hidden;
+            border: 2px solid #fff;
+            margin-right: 10px;
+            cursor: pointer;
+            background-size: cover;
+            background-position: center;
+        }
+        #status-bars {
+            flex-grow: 1;
+        }
+        .bar-container {
+            width: 100%;
+            height: 15px;
+            background: #333;
+            border-radius: 5px;
+            margin-bottom: 5px;
+            position: relative;
+            overflow: hidden;
+        }
+        .bar {
+            height: 100%;
+            width: 100%;
+            transition: width 0.3s ease;
+        }
+        .hp-bar { background: #e74c3c; }
+        .sanity-bar { background: #3498db; }
+        .bar-text {
+            position: absolute;
+            width: 100%;
+            text-align: center;
+            font-size: 10px;
+            line-height: 15px;
+            font-weight: bold;
+            text-shadow: 1px 1px 2px black;
+        }
+        #config {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.9);
+            padding: 20px;
+            box-sizing: border-box;
+            z-index: 100;
+        }
+        input {
+            width: 100%;
+            margin-bottom: 10px;
+            padding: 5px;
+        }
+        button {
+            padding: 5px 10px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div id="avatar-container" onclick="toggleConfig()"></div>
+    <div id="status-bars">
+        <div class="bar-container">
+            <div id="hp-bar" class="bar hp-bar"></div>
+            <div id="hp-text" class="bar-text">HP: 0/0</div>
+        </div>
+        <div class="bar-container">
+            <div id="sanity-bar" class="bar sanity-bar"></div>
+            <div id="sanity-text" class="bar-text">SAN: 0/0</div>
+        </div>
+    </div>
+
+    <div id="config">
+        <h3>Configurações</h3>
+        <label>URL da Imagem:</label>
+        <input type="text" id="img-url" placeholder="https://exemplo.com/foto.png">
+        <label>ID da Planilha Google:</label>
+        <input type="text" id="sheet-id" placeholder="ID da planilha">
+        <label>Nome da Aba:</label>
+        <input type="text" id="sheet-name" placeholder="Página1">
+        <button onclick="saveConfig()">Salvar</button>
+        <button onclick="toggleConfig()">Fechar</button>
+    </div>
+
+    <script>
+        let config = {
+            imgUrl: 'https://via.placeholder.com/60',
+            sheetId: '',
+            sheetName: 'Página1'
+        };
+
+        async function init() {
+            // Carregar config salva se houver (usando metadados do OBR ou localStorage)
+            const saved = localStorage.getItem('owlbear_status_config');
+            if (saved) {
+                config = JSON.parse(saved);
+                updateUI();
+            }
+            
+            // Loop de atualização
+            setInterval(fetchData, 5000);
+            fetchData();
+        }
+
+        function toggleConfig() {
+            const el = document.getElementById('config');
+            el.style.display = el.style.display === 'block' ? 'none' : 'block';
+            document.getElementById('img-url').value = config.imgUrl;
+            document.getElementById('sheet-id').value = config.sheetId;
+            document.getElementById('sheet-name').value = config.sheetName;
+        }
+
+        function saveConfig() {
+            config.imgUrl = document.getElementById('img-url').value;
+            config.sheetId = document.getElementById('sheet-id').value;
+            config.sheetName = document.getElementById('sheet-name').value;
+            localStorage.setItem('owlbear_status_config', JSON.stringify(config));
+            updateUI();
+            toggleConfig();
+            fetchData();
+        }
+
+        function updateUI() {
+            document.getElementById('avatar-container').style.backgroundImage = `url('${config.imgUrl}')`;
+        }
+
+        async function fetchData() {
+            if (!config.sheetId) return;
+
+            try {
+                // Usando a técnica de exportar como CSV para facilitar o parse sem API Key complexa
+                const url = `https://docs.google.com/spreadsheets/d/${config.sheetId}/gviz/tq?tqx=out:csv&sheet=${config.sheetName}`;
+                const response = await fetch(url);
+                const text = await response.text();
+                
+                // Parse simples de CSV (assume que HP está na coluna A e Sanidade na B, linha 2)
+                // Formato esperado na planilha:
+                // A1: HP Atual, B1: HP Max, C1: SAN Atual, D1: SAN Max
+                // A2: 10, B2: 20, C2: 5, D2: 10
+                const rows = text.split('\n').map(row => row.split(',').map(cell => cell.replace(/"/g, '')));
+                
+                if (rows.length > 1) {
+                    const hpCurrent = parseInt(rows[1][0]);
+                    const hpMax = parseInt(rows[1][1]);
+                    const sanCurrent = parseInt(rows[1][2]);
+                    const sanMax = parseInt(rows[1][3]);
+
+                    updateBars(hpCurrent, hpMax, sanCurrent, sanMax);
+                }
+            } catch (e) {
+                console.error("Erro ao buscar dados:", e);
+            }
+        }
+
+        function updateBars(hp, hpMax, san, sanMax) {
+            const hpPct = Math.max(0, Math.min(100, (hp / hpMax) * 100));
+            const sanPct = Math.max(0, Math.min(100, (san / sanMax) * 100));
+
+            document.getElementById('hp-bar').style.width = hpPct + '%';
+            document.getElementById('hp-text').innerText = `HP: ${hp}/${hpMax}`;
+            
+            document.getElementById('sanity-bar').style.width = sanPct + '%';
+            document.getElementById('sanity-text').innerText = `SAN: ${san}/${sanMax}`;
+        }
+
+        OBR.onReady(() => {
+            init();
+        });
+    </script>
+</body>
+</html>
